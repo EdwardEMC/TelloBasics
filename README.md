@@ -2,7 +2,7 @@
 Python code for controlling Tello Drones.
 
 # The repository is split into 3 sections.
-##Basic
+## Basic
 Image capturing
 Pre-coded movement
 Movement with video streaming
