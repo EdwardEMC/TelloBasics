@@ -16,6 +16,7 @@ print(drone.get_battery()) # print out the battery status
 global img # global variable for the current frame of the video stream
 drone.streamon() # turning the stream on, contiuously sends frames
 
+# FLIGHT CONTROLS
 def getKeyboardInput():
     lr, fb, ud, yv = 0, 0, 0, 0 # leftright, forwardsbackwards, updown, yawvelocity
     speed = 50 # constant value for velocity

@@ -2,31 +2,32 @@ from djitellopy import Tello
 import cv2
 from cv2 import cv2
 import numpy as np
+import time
+import keyboardModule as kp
  
- 
+# kp.init()
+
 ######################################################################
 width = 640  # WIDTH OF THE IMAGE
 height = 480  # HEIGHT OF THE IMAGE
-deadZone =100
+deadZone = 100
 ######################################################################
  
-startCounter = 1
+startCounter = 0 # 0 for flying 1 for testing
  
 # CONNECT TO TELLO
-me = Tello()
-me.connect()
-me.for_back_velocity = 0
-me.left_right_velocity = 0
-me.up_down_velocity = 0
-me.yaw_velocity = 0
-me.speed = 0
+drone = Tello()
+drone.connect()
+drone.for_back_velocity = 0
+drone.left_right_velocity = 0
+drone.up_down_velocity = 0
+drone.yaw_velocity = 0
+drone.speed = 0
  
+print(drone.get_battery())
  
- 
-print(me.get_battery())
- 
-me.streamoff()
-me.streamon()
+drone.streamoff()
+drone.streamon()
 ########################
  
 frameWidth = width
@@ -39,14 +40,16 @@ frameHeight = height
  
 global imgContour
 global dir # direction 1-left, 2-right, 3-up, 4-down, 0-no movement
+global lockedOn
+
 def empty(a):
     pass
  
 cv2.namedWindow("HSV")
 cv2.resizeWindow("HSV",640,240)
-cv2.createTrackbar("HUE Min","HSV",20,179,empty)
-cv2.createTrackbar("HUE Max","HSV",40,179,empty)
-cv2.createTrackbar("SAT Min","HSV",148,255,empty)
+cv2.createTrackbar("HUE Min","HSV",30,179,empty)
+cv2.createTrackbar("HUE Max","HSV",49,179,empty)
+cv2.createTrackbar("SAT Min","HSV",101,255,empty)
 cv2.createTrackbar("SAT Max","HSV",255,255,empty)
 cv2.createTrackbar("VALUE Min","HSV",89,255,empty)
 cv2.createTrackbar("VALUE Max","HSV",255,255,empty)
@@ -91,11 +94,13 @@ def stackImages(scale,imgArray):
  
 def getContours(img,imgContour):
     global dir
+    global lockedOn
     contours, hierarchy = cv2.findContours(img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
     for cnt in contours:
         area = cv2.contourArea(cnt)
         areaMin = cv2.getTrackbarPos("Area", "Parameters")
         if area > areaMin:
+            lockedOn = True
             cv2.drawContours(imgContour, cnt, -1, (255, 0, 255), 7)
             peri = cv2.arcLength(cnt, True)
             approx = cv2.approxPolyDP(cnt, 0.02 * peri, True)
@@ -127,7 +132,8 @@ def getContours(img,imgContour):
             cv2.putText(imgContour, "Points: " + str(len(approx)), (x + w + 20, y + 20), cv2.FONT_HERSHEY_COMPLEX, .7,(0, 255, 0), 2)
             cv2.putText(imgContour, "Area: " + str(int(area)), (x + w + 20, y + 45), cv2.FONT_HERSHEY_COMPLEX, 0.7,(0, 255, 0), 2)
             cv2.putText(imgContour, " " + str(int(x)) + " " + str(int(y)), (x - 20, y - 45), cv2.FONT_HERSHEY_COMPLEX,0.7,(0, 255, 0), 2)
-        else: dir=0
+        else: 
+            dir=0; #lockedOn = False
  
 def display(img):
     cv2.line(img,(int(frameWidth/2)-deadZone,0),(int(frameWidth/2)-deadZone,frameHeight),(255,255,0),3)
@@ -136,10 +142,35 @@ def display(img):
     cv2.line(img, (0,int(frameHeight / 2) - deadZone), (frameWidth,int(frameHeight / 2) - deadZone), (255, 255, 0), 3)
     cv2.line(img, (0, int(frameHeight / 2) + deadZone), (frameWidth, int(frameHeight / 2) + deadZone), (255, 255, 0), 3)
  
+# MANUAL FLIGHT CONTROL
+def getKeyboardInput():
+    lr, fb, ud, yv = 0, 0, 0, 0 # leftright, forwardsbackwards, updown, yawvelocity
+    speed = 50 # constant value for velocity
+
+    if kp.getKey("LEFT"): lr = -speed
+    elif kp.getKey("RIGHT"): lr = speed
+
+    if kp.getKey("UP"): fb = speed
+    elif kp.getKey("DOWN"): fb = -speed
+
+    if kp.getKey("w"): ud = speed
+    elif kp.getKey("s"): ud = -speed
+
+    if kp.getKey("a"): yv = -speed
+    elif kp.getKey("d"): yv = speed
+
+    if kp.getKey("e"): drone.takeoff()
+    if kp.getKey("l"): drone.land()
+
+    if kp.getKey("p"): # save an image
+        cv2.imwrite(f'Resources/Images/{time.time()}.jpg', img) # save img with a time stamp so no two files are the same
+        time.sleep(0.3) # add a delay so that only one image is captured
+
+    return [lr, fb, ud, yv] 
+
 while True:
- 
     # GET THE IMAGE FROM TELLO
-    frame_read = me.get_frame_read()
+    frame_read = drone.get_frame_read()
     myFrame = frame_read.frame
     img = cv2.resize(myFrame, (width, height))
     imgContour = img.copy()
@@ -168,34 +199,53 @@ while True:
     imgDil = cv2.dilate(imgCanny, kernel, iterations=1)
     getContours(imgDil, imgContour)
     display(imgContour)
- 
-    ################# FLIGHT
-    if startCounter == 0:
-       me.takeoff()
-       startCounter = 1
- 
- 
-    if dir == 1:
-       me.yaw_velocity = -60
-    elif dir == 2:
-       me.yaw_velocity = 60
-    elif dir == 3:
-       me.up_down_velocity= 60
-    elif dir == 4:
-       me.up_down_velocity= -60
-    else:
-       me.left_right_velocity = 0; me.for_back_velocity = 0;me.up_down_velocity = 0; me.yaw_velocity = 0
 
-   # SEND VELOCITY VALUES TO TELLO
-    if me.send_rc_control:
-       me.send_rc_control(me.left_right_velocity, me.for_back_velocity, me.up_down_velocity, me.yaw_velocity)
-    print(dir)
- 
     stack = stackImages(0.9, ([img, result], [imgDil, imgContour]))
     cv2.imshow('Horizontal Stacking', stack)
+
+    # # MANUAL CONTROL
+    ################################
+    # vals = getKeyboardInput()
+    # drone.send_rc_control(vals[0], vals[1], vals[2], vals[3])
+    ################################
  
+    # AUTO TRACKING
+    ################################
+    if startCounter == 0:
+       drone.takeoff()
+       startCounter = 1
+    
+    #print(lockedOn)
+ 
+    # IF AN OBJECT HAS BEEN FOUND
+    if lockedOn:
+        # stop the path movement function
+        if dir == 1:
+            drone.yaw_velocity = -60
+        elif dir == 2:
+            drone.yaw_velocity = 60
+        elif dir == 3:
+            drone.up_down_velocity= 60
+        elif dir == 4:
+            drone.up_down_velocity= -60
+        else:
+            drone.left_right_velocity = 0; drone.for_back_velocity = 0; drone.up_down_velocity = 0; drone.yaw_velocity = 0
+        
+        # SEND VELOCITY VALUES TO TELLO
+        if drone.send_rc_control:
+            drone.send_rc_control(drone.left_right_velocity, drone.for_back_velocity, drone.up_down_velocity, drone.yaw_velocity)
+            # print(dir)
+    # IF NO OBJECT GO LOOKING FOR IT
+    else:
+        # start the path movement function
+        # Cirle - slowly rotate while  moving forward for a circle
+        # drone.send_rc_control(0, 30, 0, 30)
+        # Rotate - rotate 360 degrees looking for an object 
+        drone.send_rc_control(0, 0, 0, 30)
+    ################################
+
     if cv2.waitKey(1) & 0xFF == ord('q'):
-        me.land()
+        drone.land()
         break
  
 # cap.release()
